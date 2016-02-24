@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.6/d3.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3-tip/0.6.7/d3-tip.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.4/js/bootstrap.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.6/css/bootstrap.min.css">
+  <style>
+    body {
+      font: 10px sans-serif;
+      shape-rendering: crispEdges;
+    }
+
+    .tip {
+      font-size: 12px;
+    }
+
+    .day {
+      fill: #fff;
+      stroke: #ccc;
+    }
+
+    .month {
+      fill: none;
+      stroke: #000;
+      stroke-width: 2px;
+    }
+
+    .cell .q0-11{fill:rgb(255,255,229)}
+    .cell .q1-11{fill:rgb(255,247,188)}
+    .cell .q2-11{fill:rgb(254,227,145)}
+    .cell .q3-11{fill:rgb(254,196,79)}
+    .cell .q4-11{fill:rgb(254,153,41)}
+    .cell .q5-11{fill:rgb(236,112,20)}
+    .cell .q6-11{fill:rgb(204,76,2)}
+    .cell .q7-11{fill:rgb(153,52,4)}
+    .cell .q8-11{fill:rgb(102,37,6)}
+
+    .axis path,
+    .axis line {
+      fill: none;
+      stroke: #000;
+      shape-rendering: crispEdges;
+    }
+
+    .bar {
+      fill: steelblue;
+    }
+
+    .bar:hover {
+      fill-opacity: 0.75 !important;
+    }
+
+    .x.axis path {
+      display: none;
+    }
+
+    .d3-tip {
+      line-height: 1;
+      font-weight: bold;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      border-radius: 2px;
+    }
+
+    /* Creates a small triangle extender for the tooltip */
+    .d3-tip:after {
+      box-sizing: border-box;
+      display: inline;
+      font-size: 10px;
+      width: 100%;
+      line-height: 1;
+      color: rgba(0, 0, 0, 0.8);
+      content: "\25BC";
+      position: absolute;
+      text-align: center;
+    }
+
+    /* Style northward tooltips differently */
+    .d3-tip.n:after {
+      margin: -1px 0 0 0;
+      top: 100%;
+      left: 0;
+    }
+
+/*    .btn-primary, .btn-primary:hover, .btn-primary:active, .btn-primary:visited {
+        background-color: #8064A2 !important;
+    }
+*/
+
+/*    .btn-primary {
+        background-color: #005900 !important;
+    }
+    .btn-primary:visited {
+        background-color: #228B22 !important;
+    }
+    .btn-primary:hover {
+        background-color: #228B22 !important;
+    }
+    .btn-primary:active {
+        background-color: #228B22 !important;
+    }
+    .btn-primary:focus {
+        background-color: #228B22 !important;
+    }
+*/
+  </style>
+</head>
+<body>
+
+  <script>
+
+var margin = { top: 40, right: 20, bottom: 30, left: 40 },
+    width_year = 960,
+    width_day = 960 - margin.left - margin.right,
+    height_year = 140,
+    height_day = 520 - margin.top - margin.bottom,
+    cellSize = 17; // cell size
+
+var day_fmt = d3.time.format("%w"),
+    week_fmt = d3.time.format("%U"),
+    avg_fmt = d3.format(".1f"),
+    date_fmt = d3.time.format("%Y-%m-%d");
+
+var color_year = d3.scale.quantize()
+    .domain([ 0.0, 1.0 ])
+    .range(d3.range(9).map(function(d) { return "q" + d + "-11"; }));
+
+var PRODUCT_LIST = [ 'MATLAB', 'SIMULINK', 'Image_Toolbox', 'Optimization_Toolbox', 'Signal_Toolbox', 'Statistics_Toolbox' ];
+
+var date_clicked = date_fmt(new Date());
+
+var product_selected = 'MATLAB';
+
+var svg_year = d3.select("body").selectAll("svg")
+    .data(d3.range(2015, 2016))
+  .enter().append("svg")
+    .attr("width", width_year)
+    .attr("height", height_year)
+    .attr("class", "cell")
+  .append("g")
+    .attr("transform", "translate(" + ((width_year - cellSize * 53) / 2) + "," + (height_year - cellSize * 7 - 1) + ")");
+
+svg_year.append("text")
+    .attr("transform", "translate(-6," + cellSize * 3.5 + ")rotate(-90)")
+    .style("text-anchor", "middle")
+    .text(function(d) { return d; });
+
+d3.tsv("lmstat-MATLAB-year.tsv", function(error, tsv) {
+  var avg_ext = d3.extent(tsv, function(d) { return +d.Average; });
+  var data = d3.nest()
+    .key(function(d) { return d.Date; })
+    .rollup(function(d) { return d[0].Average; })
+    .map(tsv);
+
+  var rect = svg_year.selectAll(".day")
+      .data(function(d) { return d3.time.days(new Date(d, 0, 1), new Date(d + 1, 0, 1)); })
+    .enter().append("rect")
+      .attr("class", "day")
+      .attr("width", cellSize)
+      .attr("height", cellSize)
+      .attr("x", function(d) { return week_fmt(d) * cellSize; })
+      .attr("y", function(d) { return day_fmt(d) * cellSize; })
+      .on('click', function(d) { onclick(d); }) // Note d == date_fmt(d) after the following datum method...
+      .datum(date_fmt);
+
+  rect.append("title")
+      .text(function(d) { return d; });
+
+  svg_year.selectAll(".month")
+      .data(function(d) { return d3.time.months(new Date(d, 0, 1), new Date(d + 1, 0, 1)); })
+    .enter().append("path")
+      .attr("class", "month")
+      .attr("d", monthPath);
+
+  rect.filter(function(d) { return d in data; })
+      .attr("class", function(d) { return "day " + color_year((data[d] - avg_ext[0])/(avg_ext[1] - avg_ext[0])); })
+    .select("title")
+      .text(function(d) { return d + ": Average=" + avg_fmt(data[d]); });
+});
+
+d3.select(self.frameElement).style("height", "840px");
+
+</script>
+
+<div class="container">
+  <div class="btn-group" data-toggle="buttons">
+    <label class="btn btn-primary active">
+      <input type="radio" name="options" id="MATLAB" autocomplete="off" checked>MATLAB</button>
+    </label>
+    <label class="btn btn-primary">
+      <input type="radio" name="options" id="SIMULINK" autocomplete="off">SIMULINK</button>
+    </label>
+    <label class="btn btn-primary">
+      <input type="radio" name="options" id="Image_Toolbox" autocomplete="off">Image Toolbox</button>
+    </label>
+    <label class="btn btn-primary">
+      <input type="radio" name="options" id="Optimization_Toolbox" autocomplete="off">Optimization Toolbox</button>
+    </label>
+    <label class="btn btn-primary">
+      <input type="radio" name="options" id="Signal_Toolbox" autocomplete="off">Signal Toolbox</button>
+    </label>
+    <label class="btn btn-primary">
+      <input type="radio" name="options" id="Statistics_Toolbox" autocomplete="off">Statistics Toolbox</button>
+    </label>
+  </div>
+</div>
+
+<script type="text/javascript">
+
+d3.selectAll(".btn")
+  .on("click", onselect);
+
+var data_days = d3.map();
+var data_aggregate = d3.map();
+
+function loadtsv(product) {
+  d3.tsv("lmstat-" + product + "-days.tsv", function(error, tsv) {
+
+    tsv.forEach(function(d) {
+      d.bar = { name: "Daily", value: +d.Daily, tip: d.Names };
+    });
+
+    data_days.set(product, d3.nest()
+      .key(function(d) { return d.Date; })
+      .map(tsv));
+  });
+
+  d3.tsv("lmstat-" + product + ".tsv", function(error, tsv) {
+
+    tsv.forEach(function(d) {
+      d.bar = { name: "Maximum", max: +d.Maximum, avg: +d.Average };
+    });
+
+    data_aggregate.set(product, tsv);
+  });
+}
+
+for (var i = 0; i < PRODUCT_LIST.length; i++) {
+  loadtsv(PRODUCT_LIST[i]);
+}
+
+var x0 = d3.scale.ordinal()
+    .rangeRoundBands([ 0, width_day ], .1);
+
+var x1 = d3.scale.ordinal();
+
+var y = d3.scale.linear()
+    .range([height_day, 0]);
+
+var color_day = d3.scale.ordinal()
+    // Maximum, Average, Daily
+    // .range(["#98abc5", "#7b6888", "#ff8c00"]);
+    // .range(["#FF9200", "#FFE800", "#00C3C3"]);
+    .range(["#FF6ABE", "#FFAA00", "#00CC00"]);
+
+var xAxis = d3.svg.axis()
+    .scale(x0)
+    .orient("bottom");
+
+var yAxis = d3.svg.axis()
+    .scale(y)
+    .orient("left")
+    .tickFormat(d3.format("d"));
+
+var tip = d3.tip()
+  .attr('class', 'd3-tip')
+  .offset([-10, 0])
+  .html(function(d) {
+    return "<span class=tip><span style='color:grey'>Users:</span><strong> " + d.tip + "</strong><span>";
+  });
+
+var svg_day = d3.select("body").append("svg")
+    .attr("width", width_day + margin.left + margin.right)
+    .attr("height", height_day + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+svg_day.call(tip);
+
+var hour;
+var data_today;
+
+d3.tsv("lmstat-MATLAB.tsv", function(error, tsv) {
+
+  data_today = tsv.slice();
+
+  var columnNames = d3.keys(data_today[0]).filter(function(key) { return (key !== "Hour") && (key !== "Names"); });
+
+  data_today.forEach(function(d) {
+    d.bars = columnNames.map(function(col) { return { name: col, value: +d[col], tip: "" }; });
+    d.bars[columnNames.indexOf("Daily")].tip = d.Daily
+  });
+
+  x0.domain(data_today.map(function(d) { return d.Hour; }));
+  x1.domain(columnNames).rangeRoundBands([ 0, x0.rangeBand() ]);
+  y.domain([0, d3.max(data_today, function(d) { return d3.max(d.bars, function(d) { return d.value; }); })]);
+
+  svg_day.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height_day + ")")
+      .call(xAxis);
+
+  svg_day.append("g")
+      .attr("class", "y axis")
+      .call(yAxis)
+    .append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 6)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .text("Users");
+
+  hour = svg_day.selectAll(".hour")
+      .data(data_today)
+    .enter().append("g")
+      .attr("class", "g")
+      .attr("transform", function(d) { return "translate(" + x0(d.Hour) + ",0)"; });
+
+  hour.selectAll("rect")
+      .data(function(d) { return d.bars; })
+    .enter().append("rect")
+      .attr("class", "bar")
+      .attr("width", x1.rangeBand())
+      .attr("x", function(d) { return x1(d.name); })
+      .attr("y", function(d) { return y(d.value); })
+      .attr("height", function(d) { return height_day - y(d.value); })
+      .style("fill", function(d) { return color_day(d.name); })
+    .filter(function (bar) { return bar.name == "Daily"; })
+      .on('mouseover', tip.show)
+      .on('mouseout', tip.hide);
+
+
+  var title = svg_day.selectAll(".title")
+      .append("g");
+      // .attr("class", "title");
+
+  title.append("text")
+      .attr("x", width_day - 24)
+      .attr("y", 1)
+      // .attr("transform", "translate(0,0)")
+      // .style("text-anchor", "middle")
+      .text("zzz");
+
+  var legend = svg_day.selectAll(".legend")
+      .data(columnNames.slice().reverse())
+    .enter().append("g")
+      .attr("class", "legend")
+      .attr("transform", function(d, i) { return "translate(0," + i * 20 + ")"; });
+
+  legend.append("rect")
+      .attr("x", width_day - 18)
+      .attr("width", 18)
+      .attr("height", 18)
+      .style("fill", color_day);
+
+  legend.append("text")
+      .attr("x", width_day - 24)
+      .attr("y", 9)
+      .attr("dy", ".35em")
+      .style("text-anchor", "end")
+      .text(function(d) { return d; });
+
+
+});
+
+function monthPath(t0) {
+  var t1 = new Date(t0.getFullYear(), t0.getMonth() + 1, 0),
+      d0 = +day_fmt(t0), w0 = +week_fmt(t0),
+      d1 = +day_fmt(t1), w1 = +week_fmt(t1);
+  return "M" + (w0 + 1) * cellSize + "," + d0 * cellSize
+      + "H" + w0 * cellSize + "V" + 7 * cellSize
+      + "H" + w1 * cellSize + "V" + (d1 + 1) * cellSize
+      + "H" + (w1 + 1) * cellSize + "V" + 0
+      + "H" + (w0 + 1) * cellSize + "Z";
+}
+
+function onclick(date) {
+  date_clicked = date;
+  if (date in data_days.get(product_selected)) {
+    for (var i = 0; i < data_today.length; i++) {
+      key = data_today[i].Hour;
+      for (var j = 0; j < data_today[i].bars.length; j++) {
+        if (data_today[i].bars[j].name == 'Daily') {
+          data_today[i].bars[j].value = data_days.get(product_selected)[date][key].bar.value;
+          data_today[i].bars[j].tip = data_days.get(product_selected)[date][key].bar.tip;
+        } else if (data_today[i].bars[j].name == 'Maximum') {
+          data_today[i].bars[j].value = data_aggregate.get(product_selected)[key].bar.max;
+        } else if (data_today[i].bars[j].name == 'Average') {
+          data_today[i].bars[j].value = data_aggregate.get(product_selected)[key].bar.avg;
+        }
+      }
+    }
+    hour.selectAll("rect")
+        .data(function(d) { return d.bars; })
+      .transition()
+        .duration(1000)
+        .attr("y", function(d) { return y(d.value); })
+        .attr("height", function(d) { return height_day - y(d.value); });
+  }
+}
+
+function onselect() {
+    input = this.children[0];
+    product_selected = input.getAttribute("id");
+    onclick(date_clicked);
+}
+
+function type(d) {
+  d.value = +d.value;
+  return d;
+}
+
+  </script>
+</body>
