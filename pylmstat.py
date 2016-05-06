@@ -23,6 +23,7 @@ import numpy as np
 from sqlalchemy import *
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy_utils import database_exists, create_database
 
 # These are the products that will be parsed & stored
 PRODUCT_LIST = [ 'MATLAB', 'SIMULINK', 'Image_Toolbox', 'Optimization_Toolbox', 'Signal_Toolbox', 'Statistics_Toolbox' ]
@@ -79,13 +80,27 @@ class Lmstat(object):
     script_path = os.path.dirname(os.path.realpath(__file__))
     db_path = os.path.join(script_path, "lmstat.db")
 
-    def __init__(self, verbose=False):
+    def __init__(self, db_url, verbose=False):
         self.verbose = verbose
-        self.engine = create_engine("sqlite:///%s" % self.db_path)
+        # self.engine = create_engine("sqlite:///{}".format(self.db_path))
+
+        # self.engine = create_engine("sqlite:///lmstat.db")
+#docker run --name lmstat -e POSTGRES_USER=usr -e POSTGRES_PASSWORD=pwd -d -p=5432:5432 postgres
+        # self.engine = create_engine("postgresql://usr:pwd@localhost/lmstat")
+
+        self.engine = create_engine(db_url)
+
         # self.engine.echo = True
         # self.metadata = MetaData(bind=self.engine)
-        if (not os.path.exists(self.db_path)):
+
+        # if (not os.path.exists(self.db_path)):
+        #     Base.metadata.create_all(self.engine)
+
+        # Create database and tables
+        if not database_exists(self.engine.url):
+            create_database(self.engine.url)
             Base.metadata.create_all(self.engine)
+
         self.Tables = { }
         self.Usage = { }
         # Create the table objects and usage data structure
@@ -201,16 +216,22 @@ class Lmstat(object):
                     inuse = None
                     users = [ ]
 
-    def create(self):
+    def create(self, dayrange):
         """
         Create a mock database.
         """
         Session = sessionmaker(bind=self.engine)
         session = Session()
+
+        # Clear the tables first
+        for product in PRODUCT_LIST:
+            session.query(self.Tables[product]).delete()
+            session.commit()
+
         users = [ "user-%02d" % _ for _ in range(40) ]
         current_time = datetime.now()
         current_day = datetime(current_time.year, current_time.month, current_time.day)
-        for dayspast in range(99, -1, -1):
+        for dayspast in range(dayrange - 1, -1, -1):
             daystart = current_day - timedelta(days=dayspast)
             if (daystart.weekday() in [ 5, 6 ]):
                 continue # No stats on weekend
@@ -379,12 +400,12 @@ class Lmstat(object):
                     self.Usage[product]['inuse_day_avg'].append(inuse_day_avg)
                     self.Usage[product]['users_day'].append(', '.join(users_day))
 
-    def list(self):
-        for product in PRODUCT_LIST:
-            print "%s" % product
-            for hour in range(24):
-                # print "%2d: %s (%d)" % (hour, '*' * int(self.Usage[product]['inuse_hour_avg_avg'][hour]), int(self.Usage[product]['inuse_hour_avg_avg'][hour]))
-                print "%2d: %s (%d)" % (hour, '*' * int(self.Usage[product]['inuse_hour_max_max'][hour]), int(self.Usage[product]['inuse_hour_max_max'][hour]))
+    def list(self, product):
+        # for product in PRODUCT_LIST:
+        print "%s" % product
+        for hour in range(24):
+            # print "%2d: %s (%d)" % (hour, '*' * int(self.Usage[product]['inuse_hour_avg_avg'][hour]), int(self.Usage[product]['inuse_hour_avg_avg'][hour]))
+            print "%2d: %s (%d)" % (hour, '*' * int(self.Usage[product]['inuse_hour_max_max'][hour]), int(self.Usage[product]['inuse_hour_max_max'][hour]))
 
     def plot(self):
         plt.style.use('ggplot')
@@ -435,20 +456,22 @@ def main():
 
     parser = argparse.ArgumentParser(description="Query and collate stats from Matlab license server.")
     # parser.add_argument('-i', help="Initialise SQLite database")
-    parser.add_argument('-c', help="Create a mock database", action='store_true')
+    # parser.add_argument('-c', help="Create a mock database", action='store_true')
+    parser.add_argument('-d', help="Database URL ['sqlite:///lmstat.db']", nargs='?', const='sqlite:///lmstat.db')
+    parser.add_argument('-c', help="Create a mock database of N days", default=0, type=int)
     parser.add_argument('-q', help="Query the lmstat server", action='store_true')
     parser.add_argument('-r', help="Lmstat output file to read ['lmstat.txt']", nargs='?', const='lmstat.txt')
     parser.add_argument('-i', help="Insert a new lmstat query result into the db", action='store_true')
-    parser.add_argument('-l', help="List an hourly summary of the data", action='store_true')
+    parser.add_argument('-l', help="List an hourly summary of the product ['MATLAB']", nargs='?', const='MATLAB')
     parser.add_argument('-p', help="Plot an hourly summary of the data", action='store_true')
     parser.add_argument('-e', help="Export directory for the summary data files ['.']", nargs='?', const='.')
     parser.add_argument('-v', help="Verbose output", action='store_true')
 
     args = parser.parse_args()
 
-    lmstat = Lmstat(verbose=args.v)
-    if args.c:
-        lmstat.create()
+    lmstat = Lmstat(args.d, verbose=args.v)
+    if (args.c > 0):
+        lmstat.create(args.c)
     else:
         lmstat_outs = [ ]
         if args.q:
@@ -464,7 +487,7 @@ def main():
         lmstat.analyse_days()
         lmstat.analyse_year()
     if args.l:
-        lmstat.list()
+        lmstat.list(args.l)
     elif args.p:
         if matplotlibExists:
             lmstat.plot()
