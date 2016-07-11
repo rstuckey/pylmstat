@@ -85,7 +85,18 @@ class Lmstat(object):
         # self.engine = create_engine("sqlite:///{}".format(self.db_path))
 
         # self.engine = create_engine("sqlite:///lmstat.db")
-#docker run --name lmstat -e POSTGRES_USER=usr -e POSTGRES_PASSWORD=pwd -d -p=5432:5432 postgres
+
+# Run postgres inside a Docker container:
+# docker run --name lmstat -e POSTGRES_USER=usr -e POSTGRES_PASSWORD=pwd -p=5432:5432 -d postgres
+# With persistent data:
+# docker run --name lmstat -e POSTGRES_USER=usr -e POSTGRES_PASSWORD=pwd -e PGDATA=/var/lib/postgresql/data/pgdata -v /mnt/Docker/pgdata:/var/lib/postgresql/data/pgdata -p 5432:5432 -d postgres
+# Then pass the db_url explicitly:
+# ./pylmstat.py -d 'postgresql://usr:pwd@localhost/lmstat' -c 5
+# ./pylmstat.py -d 'postgresql://usr:pwd@localhost/lmstat' -l
+# Or use a local sqlite database:
+# ./pylmstat.py -d 'sqlite:///lmstat.db' -c 5
+# ./pylmstat.py -d 'sqlite:///lmstat.db' -l
+
         # self.engine = create_engine("postgresql://usr:pwd@localhost/lmstat")
 
         self.engine = create_engine(db_url)
